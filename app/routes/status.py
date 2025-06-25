@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify
 from flask_cors import cross_origin
 import time
 from datetime import datetime
-from flask import __version__ as flask_version
+import importlib
 
 status_bp = Blueprint('status', __name__)
 
@@ -16,5 +16,5 @@ def server_status():
         "message": "Server is up and running",
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "uptime_seconds": uptime_seconds,
-        "flask_version": flask_version,
+        "flask_version": importlib.metadata.version("flask"),
     })

@@ -35,14 +35,31 @@ def horoscope():
         if not location_data:
             return jsonify({"error": "Invalid place"}), 400
 
-        # Generate horoscope
-        native = AstrologicalSubject(
-            name=name,
-            year=birth_datetime.year, month=birth_datetime.month, day=birth_datetime.day,
-            hour=birth_datetime.hour, minute=birth_datetime.minute,
-            lng=location_data['longitude'], lat=location_data['latitude'],
-            tz_str=location_data['timezone'], zodiac_type="Sidereal", sidereal_mode="LAHIRI"
-        )
+        # Retry logic for AstrologicalSubject to avoid house cusp errors
+        max_attempts = 3
+        attempt = 0
+        success = False
+        native = None
+        while attempt < max_attempts and not success:
+            try:
+                native = AstrologicalSubject(
+                    name=name,
+                    year=birth_datetime.year, month=birth_datetime.month, day=birth_datetime.day,
+                    hour=birth_datetime.hour, minute=birth_datetime.minute,
+                    lng=location_data['longitude'], lat=location_data['latitude'],
+                    tz_str=location_data['timezone'], zodiac_type="Sidereal", sidereal_mode="LAHIRI"
+                )
+                success = True
+            except ValueError as ve:
+                if "Error in house calculation" in str(ve):
+                    birth_datetime += timedelta(minutes=1)
+                    print(f"Retrying horoscope generation, attempt {attempt + 1}...{birth_datetime}")
+                    attempt += 1
+                else:
+                    raise ve
+
+        if not success:
+            raise ValueError("Failed to generate horoscope due to house calculation error.")
 
         # Get the absolute positions of the Sun and Moon
         sun_pos = get_abs_pos(native.sun)
@@ -73,6 +90,7 @@ def horoscope():
             "யோகம்": yoga,
             "தசை இருப்பு": get_active_dasha(dasha_periods, birth_datetime)
         }
+
         # Extract planetary positions (for combustion/debilitation checks)
         planetary_positions = {
             "சூரியன்": get_abs_pos(native.sun),
@@ -87,9 +105,8 @@ def horoscope():
         }
 
         # Calculate Sutha Jathagam score
-        purity_score = is_sutha_jathagam(rasi_houses, navamsa_houses, planetary_positions,rasi_chart)
+        purity_score = is_sutha_jathagam(rasi_houses, navamsa_houses, planetary_positions, rasi_chart)
         response["சுத்த ஜாதகம்"] = f"{purity_score}% சுத்தம்"
-        rasi_chart, navamsa_chart = get_chart_placements(native)
         response["ராசி வீடுகள்"] = rasi_chart
         response["நவாம்ச வீடுகள்"] = navamsa_chart
         response["அயனாம்சம்"] = f"{calculate_ayanamsa(birth_datetime)}° (Lahiri approximation)"
@@ -106,8 +123,8 @@ def horoscope():
                 "nakshatra": nakshatra,
                 "pada": pada
             })
-        
-        # Add Lagna (Ascendant) information to the planetary positions
+
+        # Add Lagna (Ascendant)
         lagna_obj = native.first_house
         lagna_abs_pos = get_abs_pos(lagna_obj)
         lagna_nak, lagna_pada = get_nakshatra_pada(lagna_abs_pos)
@@ -123,7 +140,7 @@ def horoscope():
 
     except Exception as e:
         tb = traceback.format_exc()
-        print("ERROR TRACEBACK:\n", tb)  # Print to console
+        print("ERROR TRACEBACK:\n", tb)
         return jsonify({
             "error": str(e),
             "traceback": tb
